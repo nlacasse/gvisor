@@ -49,6 +49,10 @@ const (
 	// EthernetAddressSize is the size, in bytes, of an ethernet address.
 	EthernetAddressSize = 6
 
+	// BroadcastEthernetAddress is a special ethernet address that addresses
+	// every node on a local link.
+	BroadcastEthernetAddress = tcpip.LinkAddress("\xff\xff\xff\xff\xff\xff")
+
 	// unspecifiedEthernetAddress is the unspecified ethernet address
 	// (all bits set to 0).
 	unspecifiedEthernetAddress = tcpip.LinkAddress("\x00\x00\x00\x00\x00\x00")

@@ -300,7 +300,7 @@ type NetworkProtocol interface {
 	ParseAddresses(v buffer.View) (src, dst tcpip.Address)
 
 	// NewEndpoint creates a new endpoint of this protocol.
-	NewEndpoint(nicID tcpip.NICID, addrWithPrefix tcpip.AddressWithPrefix, linkAddrCache LinkAddressCache, dispatcher TransportDispatcher, sender LinkEndpoint, st *Stack) (NetworkEndpoint, *tcpip.Error)
+	NewEndpoint(nicID tcpip.NICID, addrWithPrefix tcpip.AddressWithPrefix, nud NUDHandler, dispatcher TransportDispatcher, sender LinkEndpoint, st *Stack) (NetworkEndpoint, *tcpip.Error)
 
 	// SetOption allows enabling/disabling protocol specific features.
 	// SetOption returns an error if the option is not supported or the
@@ -456,12 +456,13 @@ type InjectableLinkEndpoint interface {
 // A LinkAddressResolver is an extension to a NetworkProtocol that
 // can resolve link addresses.
 type LinkAddressResolver interface {
-	// LinkAddressRequest sends a request for the LinkAddress of addr.
-	// The request is sent on linkEP with localAddr as the source.
+	// LinkAddressRequest sends a request for the LinkAddress of addr. Sends to
+	// multiple devices on the local network if linkAddr is the zero value. The
+	// request is sent on linkEP with localAddr as the source.
 	//
 	// A valid response will cause the discovery protocol's network
 	// endpoint to call AddLinkAddress.
-	LinkAddressRequest(addr, localAddr tcpip.Address, linkEP LinkEndpoint) *tcpip.Error
+	LinkAddressRequest(addr, localAddr tcpip.Address, linkAddr tcpip.LinkAddress, linkEP LinkEndpoint) *tcpip.Error
 
 	// ResolveStaticAddress attempts to resolve address without sending
 	// requests. It either resolves the name immediately or returns the
@@ -471,16 +472,12 @@ type LinkAddressResolver interface {
 	ResolveStaticAddress(addr tcpip.Address) (tcpip.LinkAddress, bool)
 
 	// LinkAddressProtocol returns the network protocol of the
-	// addresses this this resolver can resolve.
+	// addresses this resolver can resolve.
 	LinkAddressProtocol() tcpip.NetworkProtocolNumber
 }
 
 // A LinkAddressCache caches link addresses.
 type LinkAddressCache interface {
-	// CheckLocalAddress determines if the given local address exists, and if it
-	// does not exist.
-	CheckLocalAddress(nicID tcpip.NICID, protocol tcpip.NetworkProtocolNumber, addr tcpip.Address) tcpip.NICID
-
 	// AddLinkAddress adds a link address to the cache.
 	AddLinkAddress(nicID tcpip.NICID, addr tcpip.Address, linkAddr tcpip.LinkAddress)
 

@@ -416,6 +416,7 @@ func TestDADResolve(t *testing.T) {
 				headerLength: test.linkHeaderLen,
 			}
 			e.Endpoint.LinkEPCapabilities |= stack.CapabilityResolutionRequired
+
 			s := stack.New(opts)
 			if err := s.CreateNIC(nicID, &e); err != nil {
 				t.Fatalf("CreateNIC(%d, _) = %s", nicID, err)
@@ -1196,7 +1197,7 @@ func TestRouterDiscovery(t *testing.T) {
 	e.InjectInbound(header.IPv6ProtocolNumber, raBuf(llAddr2, l2LifetimeSeconds))
 	select {
 	case <-ndpDisp.routerC:
-		t.Fatal("Should not receive a router event when updating lifetimes for known routers")
+		t.Fatal("should not receive a router event when updating lifetimes for known routers")
 	default:
 	}
 
@@ -2759,7 +2760,7 @@ func stackAndNdpDispatcherWithDefaultRoute(t *testing.T, nicID tcpip.NICID) (*nd
 		Gateway:     llAddr3,
 		NIC:         nicID,
 	}})
-	s.AddLinkAddress(nicID, llAddr3, linkAddr3)
+	s.AddStaticNeighbor(nicID, llAddr3, linkAddr3)
 	return ndpDisp, e, s
 }
 
@@ -5067,6 +5068,7 @@ func TestRouterSolicitation(t *testing.T) {
 					headerLength: test.linkHeaderLen,
 				}
 				e.Endpoint.LinkEPCapabilities |= stack.CapabilityResolutionRequired
+
 				waitForPkt := func(timeout time.Duration) {
 					t.Helper()
 					ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -5118,7 +5120,7 @@ func TestRouterSolicitation(t *testing.T) {
 					t.Fatalf("CreateNIC(%d, _) = %s", nicID, err)
 				}
 
-				if addr := test.nicAddr; addr != "" {
+				if addr := test.nicAddr; len(addr) != 0 {
 					if err := s.AddAddress(nicID, header.IPv6ProtocolNumber, addr); err != nil {
 						t.Fatalf("AddAddress(%d, %d, %s) = %s", nicID, header.IPv6ProtocolNumber, addr, err)
 					}

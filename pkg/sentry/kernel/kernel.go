@@ -32,6 +32,7 @@
 package kernel
 
 import (
+	stdcontext "context"
 	"errors"
 	"fmt"
 	"io"
@@ -1463,6 +1464,13 @@ func (k *Kernel) NowMonotonic() int64 {
 		panic("Kernel.NowMonotonic: " + err.Error())
 	}
 	return now
+}
+
+// AfterFunc implements tcpip.Clock.AfterFunc.
+func (k *Kernel) AfterFunc(l sync.Locker, d time.Duration, f func()) stdcontext.CancelFunc {
+	timer := tcpip.NewCancellableTimer(l, f)
+	timer.Reset(d)
+	return timer.StopLocked
 }
 
 // SetMemoryFile sets Kernel.mf. SetMemoryFile must be called before Init or

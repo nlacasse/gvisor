@@ -50,7 +50,7 @@ type endpoint struct {
 	id            stack.NetworkEndpointID
 	prefixLen     int
 	linkEP        stack.LinkEndpoint
-	linkAddrCache stack.LinkAddressCache
+	nud           stack.NUDHandler
 	dispatcher    stack.TransportDispatcher
 	fragmentation *fragmentation.Fragmentation
 	protocol      *protocol
@@ -459,13 +459,13 @@ func (*protocol) ParseAddresses(v buffer.View) (src, dst tcpip.Address) {
 }
 
 // NewEndpoint creates a new ipv6 endpoint.
-func (p *protocol) NewEndpoint(nicID tcpip.NICID, addrWithPrefix tcpip.AddressWithPrefix, linkAddrCache stack.LinkAddressCache, dispatcher stack.TransportDispatcher, linkEP stack.LinkEndpoint, st *stack.Stack) (stack.NetworkEndpoint, *tcpip.Error) {
+func (p *protocol) NewEndpoint(nicID tcpip.NICID, addrWithPrefix tcpip.AddressWithPrefix, nud stack.NUDHandler, dispatcher stack.TransportDispatcher, linkEP stack.LinkEndpoint, st *stack.Stack) (stack.NetworkEndpoint, *tcpip.Error) {
 	return &endpoint{
 		nicID:         nicID,
 		id:            stack.NetworkEndpointID{LocalAddress: addrWithPrefix.Address},
 		prefixLen:     addrWithPrefix.PrefixLen,
 		linkEP:        linkEP,
-		linkAddrCache: linkAddrCache,
+		nud:           nud,
 		dispatcher:    dispatcher,
 		fragmentation: fragmentation.NewFragmentation(fragmentation.HighFragThreshold, fragmentation.LowFragThreshold, fragmentation.DefaultReassembleTimeout),
 		protocol:      p,
