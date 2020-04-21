@@ -132,7 +132,7 @@ func SyncFileRange(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel
 	// In Linux, sync_file_range() doesn't writes out the  file's
 	// meta-data, but fdatasync() does if a file size is changed.
 	if uflags&linux.SYNC_FILE_RANGE_WAIT_AFTER != 0 {
-		err = file.Fsync(t, offset, fs.FileMaxOffset, fs.SyncData)
+		err = file.Fsync(t, offset, nbytes, fs.SyncData)
 	}
 
 	return 0, nil, syserror.ConvertIntr(err, kernel.ERESTARTSYS)
