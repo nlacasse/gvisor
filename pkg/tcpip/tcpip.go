@@ -813,6 +813,30 @@ type OutOfBandInlineOption int
 // a default TTL.
 type DefaultTTLOption uint8
 
+// StackSACKEnabled option can be used to enable SACK support in the TCP
+// protocol. See: https://tools.ietf.org/html/rfc2018.
+type StackSACKEnabled bool
+
+// StackDelayEnabled option can be used to enable Nagle's algorithm in the TCP protocol.
+type StackDelayEnabled bool
+
+// StackSendBufferSizeOption allows the stack-wide default, min and max send
+// buffer sizes to be queried or configured.
+type StackSendBufferSizeOption struct {
+	Min     int
+	Default int
+	Max     int
+}
+
+// StackReceiveBufferSizeOption allows the stack-wide default, min and max
+// receive buffer sizes to be queried or configured.
+type StackReceiveBufferSizeOption struct {
+	Min     int
+	Default int
+	Max     int
+}
+
+//
 // IPPacketInfo is the message struture for IP_PKTINFO.
 //
 // +stateify savable

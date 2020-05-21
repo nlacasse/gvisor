@@ -46,7 +46,7 @@ func createConnectedWithSACKAndTS(c *context.Context) *context.RawEndpoint {
 
 func setStackSACKPermitted(t *testing.T, c *context.Context, enable bool) {
 	t.Helper()
-	if err := c.Stack().SetTransportProtocolOption(tcp.ProtocolNumber, tcp.SACKEnabled(enable)); err != nil {
+	if err := c.Stack().SetTransportProtocolOption(tcp.ProtocolNumber, tcpip.StackSACKEnabled(enable)); err != nil {
 		t.Fatalf("c.s.SetTransportProtocolOption(tcp.ProtocolNumber, SACKEnabled(%v) = %v", enable, err)
 	}
 }

@@ -18,6 +18,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/un.h>
 
 #include <cstdio>
@@ -2244,6 +2245,220 @@ TEST_P(IPv4UDPUnboundSocketTest, SetAndReceiveIPPKTINFO) {
   EXPECT_EQ(received_pktinfo.ipi_ifindex, ifr.ifr_ifindex);
   EXPECT_EQ(received_pktinfo.ipi_spec_dst.s_addr, htonl(INADDR_LOOPBACK));
   EXPECT_EQ(received_pktinfo.ipi_addr.s_addr, htonl(INADDR_LOOPBACK));
+}
+
+// Check that setting SO_RCVBUF below min is clamped to the minimum
+// receive buffer size.
+TEST_P(IPv4UDPUnboundSocketTest, SetSocketRecvBufBelowMin) {
+  auto s = ASSERT_NO_ERRNO_AND_VALUE(NewSocket());
+
+  constexpr int rcvBufSz = 0;
+  ASSERT_THAT(
+      setsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &rcvBufSz, sizeof(rcvBufSz)),
+      SyscallSucceeds());
+
+  int min = 0;
+  socklen_t min_len = sizeof(min);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &min, &min_len),
+              SyscallSucceeds());
+
+  int below_min = min - 1;
+  ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &below_min,
+                         sizeof(below_min)),
+              SyscallSucceeds());
+
+  int val = 0;
+  socklen_t val_len = sizeof(val);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &val, &val_len),
+              SyscallSucceeds());
+
+  // Linux doubles the value set by SO_SNDBUF/SO_RCVBUF.
+  if (!IsRunningOnGvisor()) {
+    min = (min - 1) * 2;
+  }
+
+  ASSERT_EQ(min, val);
+}
+
+// Check that setting SO_RCVBUF above max is clamped to the maximum
+// receive buffer size.
+TEST_P(IPv4UDPUnboundSocketTest, SetSocketRecvBufAboveMax) {
+  auto s = ASSERT_NO_ERRNO_AND_VALUE(NewSocket());
+
+  constexpr int rcvBufSz = 0xffffffff;
+  ASSERT_THAT(
+      setsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &rcvBufSz, sizeof(rcvBufSz)),
+      SyscallSucceeds());
+
+  int max = 0;
+  socklen_t max_len = sizeof(max);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &max, &max_len),
+              SyscallSucceeds());
+
+  int above_max = max + 1;
+  ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &above_max,
+                         sizeof(above_max)),
+              SyscallSucceeds());
+
+  int val = 0;
+  socklen_t val_len = sizeof(val);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &val, &val_len),
+              SyscallSucceeds());
+  ASSERT_EQ(max, val);
+}
+
+// Check that setting SO_RCVBUF min <= rcvBufSz <= max is honored.
+// receive buffer size.
+TEST_P(IPv4UDPUnboundSocketTest, SetSocketRecvBuf) {
+  auto s = ASSERT_NO_ERRNO_AND_VALUE(NewSocket());
+
+  int max = 0;
+  int min = 0;
+  {
+    constexpr int rcvBufSz = 0xffffffff;
+    ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &rcvBufSz,
+                           sizeof(rcvBufSz)),
+                SyscallSucceeds());
+
+    max = 0;
+    socklen_t max_len = sizeof(max);
+    ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &max, &max_len),
+                SyscallSucceeds());
+  }
+
+  {
+    constexpr int rcvBufSz = 0;
+    ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &rcvBufSz,
+                           sizeof(rcvBufSz)),
+                SyscallSucceeds());
+
+    socklen_t min_len = sizeof(min);
+    ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &min, &min_len),
+                SyscallSucceeds());
+  }
+
+  int quarter_sz = min + (max - min) / 4;
+  ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &quarter_sz,
+                         sizeof(quarter_sz)),
+              SyscallSucceeds());
+
+  int val = 0;
+  socklen_t val_len = sizeof(val);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_RCVBUF, &val, &val_len),
+              SyscallSucceeds());
+
+  // Linux doubles the value set by SO_SNDBUF/SO_RCVBUF.
+  if (!IsRunningOnGvisor()) {
+    quarter_sz *= 2;
+  }
+  ASSERT_EQ(quarter_sz, val);
+}
+
+// Check that setting SO_SNDBUF below min is clamped to the minimum
+// receive buffer size.
+TEST_P(IPv4UDPUnboundSocketTest, SetSocketSendBufBelowMin) {
+  auto s = ASSERT_NO_ERRNO_AND_VALUE(NewSocket());
+
+  constexpr int rcvBufSz = 0;
+  ASSERT_THAT(
+      setsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &rcvBufSz, sizeof(rcvBufSz)),
+      SyscallSucceeds());
+
+  int min = 0;
+  socklen_t min_len = sizeof(min);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &min, &min_len),
+              SyscallSucceeds());
+
+  int below_min = min - 1;
+  ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &below_min,
+                         sizeof(below_min)),
+              SyscallSucceeds());
+
+  int val = 0;
+  socklen_t val_len = sizeof(val);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &val, &val_len),
+              SyscallSucceeds());
+
+  // Linux doubles the value set by SO_SNDBUF/SO_RCVBUF.
+  if (!IsRunningOnGvisor()) {
+    min = (min - 1) * 2;
+  }
+  ASSERT_EQ(min, val);
+}
+
+// Check that setting SO_SNDBUF above max is clamped to the maximum
+// receive buffer size.
+TEST_P(IPv4UDPUnboundSocketTest, SetSocketSendBufAboveMax) {
+  auto s = ASSERT_NO_ERRNO_AND_VALUE(NewSocket());
+
+  constexpr int rcvBufSz = 0xffffffff;
+  ASSERT_THAT(
+      setsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &rcvBufSz, sizeof(rcvBufSz)),
+      SyscallSucceeds());
+
+  int max = 0;
+  socklen_t max_len = sizeof(max);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &max, &max_len),
+              SyscallSucceeds());
+
+  int above_max = max + 1;
+  ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &above_max,
+                         sizeof(above_max)),
+              SyscallSucceeds());
+
+  int val = 0;
+  socklen_t val_len = sizeof(val);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &val, &val_len),
+              SyscallSucceeds());
+  ASSERT_EQ(max, val);
+}
+
+// Check that setting SO_SNDBUF min <= rcvBufSz <= max is honored.
+// receive buffer size.
+TEST_P(IPv4UDPUnboundSocketTest, SetSocketSendBuf) {
+  auto s = ASSERT_NO_ERRNO_AND_VALUE(NewSocket());
+
+  int max = 0;
+  int min = 0;
+  {
+    constexpr int rcvBufSz = 0xffffffff;
+    ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &rcvBufSz,
+                           sizeof(rcvBufSz)),
+                SyscallSucceeds());
+
+    max = 0;
+    socklen_t max_len = sizeof(max);
+    ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &max, &max_len),
+                SyscallSucceeds());
+  }
+
+  {
+    constexpr int rcvBufSz = 0;
+    ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &rcvBufSz,
+                           sizeof(rcvBufSz)),
+                SyscallSucceeds());
+
+    socklen_t min_len = sizeof(min);
+    ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &min, &min_len),
+                SyscallSucceeds());
+  }
+
+  int quarter_sz = min + (max - min) / 4;
+  ASSERT_THAT(setsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &quarter_sz,
+                         sizeof(quarter_sz)),
+              SyscallSucceeds());
+
+  int val = 0;
+  socklen_t val_len = sizeof(val);
+  ASSERT_THAT(getsockopt(s->get(), SOL_SOCKET, SO_SNDBUF, &val, &val_len),
+              SyscallSucceeds());
+
+  // Linux doubles the value set by SO_SNDBUF/SO_RCVBUF.
+  if (!IsRunningOnGvisor()) {
+    quarter_sz *= 2;
+  }
+
+  ASSERT_EQ(quarter_sz, val);
 }
 }  // namespace testing
 }  // namespace gvisor

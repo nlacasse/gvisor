@@ -144,11 +144,11 @@ func New(t *testing.T, mtu uint32) *Context {
 	})
 
 	// Allow minimum send/receive buffer sizes to be 1 during tests.
-	if err := s.SetTransportProtocolOption(tcp.ProtocolNumber, tcp.SendBufferSizeOption{1, tcp.DefaultSendBufferSize, 10 * tcp.DefaultSendBufferSize}); err != nil {
+	if err := s.SetTransportProtocolOption(tcp.ProtocolNumber, tcpip.StackSendBufferSizeOption{1, tcp.DefaultSendBufferSize, 10 * tcp.DefaultSendBufferSize}); err != nil {
 		t.Fatalf("SetTransportProtocolOption failed: %v", err)
 	}
 
-	if err := s.SetTransportProtocolOption(tcp.ProtocolNumber, tcp.ReceiveBufferSizeOption{1, tcp.DefaultReceiveBufferSize, 10 * tcp.DefaultReceiveBufferSize}); err != nil {
+	if err := s.SetTransportProtocolOption(tcp.ProtocolNumber, tcpip.StackReceiveBufferSizeOption{1, tcp.DefaultReceiveBufferSize, 10 * tcp.DefaultReceiveBufferSize}); err != nil {
 		t.Fatalf("SetTransportProtocolOption failed: %v", err)
 	}
 
@@ -1091,7 +1091,7 @@ func (c *Context) PassiveConnectWithOptions(maxPayload, wndScale int, synOptions
 // SACKEnabled returns true if the TCP Protocol option SACKEnabled is set to true
 // for the Stack in the context.
 func (c *Context) SACKEnabled() bool {
-	var v tcp.SACKEnabled
+	var v tcpip.StackSACKEnabled
 	if err := c.Stack().TransportProtocolOption(tcp.ProtocolNumber, &v); err != nil {
 		// Stack doesn't support SACK. So just return.
 		return false

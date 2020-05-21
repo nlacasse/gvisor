@@ -1043,7 +1043,7 @@ func newEmptySandboxNetworkStack(clock tcpip.Clock, uniqueID stack.UniqueID) (in
 	})}
 
 	// Enable SACK Recovery.
-	if err := s.Stack.SetTransportProtocolOption(tcp.ProtocolNumber, tcp.SACKEnabled(true)); err != nil {
+	if err := s.Stack.SetTransportProtocolOption(tcp.ProtocolNumber, tcpip.StackSACKEnabled(true)); err != nil {
 		return nil, fmt.Errorf("failed to enable SACK: %v", err)
 	}
 
