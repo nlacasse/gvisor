@@ -371,6 +371,11 @@ func (fs *filesystem) doCreateAt(ctx context.Context, rp *vfs.ResolvingPath, dir
 		}
 		parent.touchCMtime()
 		parent.dirents = nil
+		ev := linux.IN_CREATE
+		if dir {
+			ev |= linux.IN_ISDIR
+		}
+		parent.watches.Notify(name, uint32(ev), 0, vfs.InodeEvent)
 		return nil
 	}
 	if fs.opts.interop == InteropModeShared {
@@ -397,6 +402,11 @@ func (fs *filesystem) doCreateAt(ctx context.Context, rp *vfs.ResolvingPath, dir
 	}
 	parent.touchCMtime()
 	parent.dirents = nil
+	ev := linux.IN_CREATE
+	if dir {
+		ev |= linux.IN_ISDIR
+	}
+	parent.watches.Notify(name, uint32(ev), 0, vfs.InodeEvent)
 	return nil
 }
 
@@ -527,6 +537,18 @@ func (fs *filesystem) unlinkAt(ctx context.Context, rp *vfs.ResolvingPath, dir b
 			return err
 		}
 	}
+
+	// Generate inotify events for rmdir or unlink.
+	if dir {
+		parent.watches.Notify(name, linux.IN_DELETE|linux.IN_ISDIR, 0, vfs.InodeEvent)
+	} else {
+		var cw *vfs.Watches
+		if child != nil {
+			cw = &child.watches
+		}
+		vfs.InotifyRemoveChild(cw, &parent.watches, name)
+	}
+
 	if child != nil {
 		vfsObj.CommitDeleteDentry(&child.vfsd)
 		child.setDeleted()
@@ -1010,6 +1032,7 @@ func (d *dentry) createAndOpenChildLocked(ctx context.Context, rp *vfs.Resolving
 		}
 		childVFSFD = &fd.vfsfd
 	}
+	d.watches.Notify(name, linux.IN_CREATE, 0, vfs.PathEvent)
 	return childVFSFD, nil
 }
 
@@ -1194,6 +1217,7 @@ func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldPa
 			newParent.incLinks()
 		}
 	}
+	vfs.InotifyRename(ctx, &renamed.watches, &oldParent.watches, &newParent.watches, oldName, newName, renamed.isDir())
 	return nil
 }
 
@@ -1211,7 +1235,13 @@ func (fs *filesystem) SetStatAt(ctx context.Context, rp *vfs.ResolvingPath, opts
 	if err != nil {
 		return err
 	}
-	return d.setStat(ctx, rp.Credentials(), &opts.Stat, rp.Mount())
+	if err := d.setStat(ctx, rp.Credentials(), &opts.Stat, rp.Mount()); err != nil {
+		return err
+	}
+	if ev := vfs.InotifyEventFromStatMask(opts.Stat.Mask); ev != 0 {
+		d.InotifyWithParent(ev, 0, vfs.InodeEvent)
+	}
+	return nil
 }
 
 // StatAt implements vfs.FilesystemImpl.StatAt.
@@ -1340,7 +1370,11 @@ func (fs *filesystem) SetxattrAt(ctx context.Context, rp *vfs.ResolvingPath, opt
 	if err != nil {
 		return err
 	}
-	return d.setxattr(ctx, rp.Credentials(), &opts)
+	if err := d.setxattr(ctx, rp.Credentials(), &opts); err != nil {
+		return err
+	}
+	d.InotifyWithParent(linux.IN_ATTRIB, 0, vfs.InodeEvent)
+	return nil
 }
 
 // RemovexattrAt implements vfs.FilesystemImpl.RemovexattrAt.
@@ -1352,7 +1386,11 @@ func (fs *filesystem) RemovexattrAt(ctx context.Context, rp *vfs.ResolvingPath, 
 	if err != nil {
 		return err
 	}
-	return d.removexattr(ctx, rp.Credentials(), name)
+	if err := d.removexattr(ctx, rp.Credentials(), name); err != nil {
+		return err
+	}
+	d.InotifyWithParent(linux.IN_ATTRIB, 0, vfs.InodeEvent)
+	return nil
 }
 
 // PrependPath implements vfs.FilesystemImpl.PrependPath.

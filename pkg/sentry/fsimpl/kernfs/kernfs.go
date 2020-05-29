@@ -228,7 +228,12 @@ func (d *Dentry) destroy() {
 // InotifyWithParent implements vfs.DentryImpl.InotifyWithParent.
 //
 // TODO(gvisor.dev/issue/1479): Implement inotify.
-func (d *Dentry) InotifyWithParent(events uint32, cookie uint32, et vfs.EventType) {}
+func (d *Dentry) InotifyWithParent(events, cookie uint32, et vfs.EventType) {}
+
+// RemoveWatch implements DentryImpl.RemoveWatch.
+//
+// TODO(gvisor.dev/issue/1479): Implement inotify.
+func (d *Dentry) RemoveWatch(id uint64) {}
 
 // Watches implements vfs.DentryImpl.Watches.
 //

@@ -131,7 +131,7 @@ func (i *Inotify) Release() {
 		// Remove references to the watch from the watches set on the target. We
 		// don't need to worry about the references from i.watches, since this
 		// file description is about to be destroyed.
-		w.set.Remove(i.id)
+		w.target.RemoveWatch(i.id)
 	}
 }
 
@@ -273,18 +273,17 @@ func (i *Inotify) queueEvent(ev *Event) {
 //
 // Precondition: i.mu must be locked.
 func (i *Inotify) newWatchLocked(target *Dentry, mask uint32) *Watch {
-	targetWatches := target.Watches()
 	w := &Watch{
-		owner: i,
-		wd:    i.nextWatchIDLocked(),
-		set:   targetWatches,
-		mask:  mask,
+		owner:  i,
+		wd:     i.nextWatchIDLocked(),
+		target: target,
+		mask:   mask,
 	}
 
 	// Hold the watch in this inotify instance as well as the watch set on the
 	// target.
 	i.watches[w.wd] = w
-	targetWatches.Add(w)
+	target.Watches().Add(w)
 	return w
 }
 
@@ -352,7 +351,7 @@ func (i *Inotify) RmWatch(wd int32) error {
 	delete(i.watches, wd)
 
 	// Remove the watch from the watch target.
-	w.set.Remove(w.OwnerID())
+	w.target.RemoveWatch(w.OwnerID())
 	i.mu.Unlock()
 
 	// Generate the event for the removal.
@@ -371,6 +370,13 @@ type Watches struct {
 	// ws is the map of active watches in this collection, keyed by the inotify
 	// instance id of the owner.
 	ws map[uint64]*Watch
+}
+
+// Size returns the number of watches held by w.
+func (w *Watches) Size() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.ws)
 }
 
 // Lookup returns the watch owned by an inotify instance with the given id.
@@ -408,6 +414,10 @@ func (w *Watches) Add(watch *Watch) {
 // releases it. The caller is responsible for generating any watch removal
 // event, as appropriate. The provided id must match an existing watch in this
 // collection.
+//
+// Note that Remove() should only be called in implementations of
+// DentryImpl.RemoveWatch(). Each implementation may have extra work that needs
+// to be done when removing a watch (e.g. fsimpl/gofer:dentry.RemoveWatch).
 //
 // Precondition: the inotify instance with the given id must be locked.
 func (w *Watches) Remove(id uint64) {
@@ -494,9 +504,9 @@ type Watch struct {
 	// Descriptor for this watch. This is unique across an inotify instance.
 	wd int32
 
-	// set is the watch set containing this watch. It belongs to the target file
-	// of this watch.
-	set *Watches
+	// target is a dentry representing the watch target. target.Watches() is the
+	// watch set containing this watch.
+	target *Dentry
 
 	// Events being monitored via this watch. Must be accessed with atomic
 	// memory operations.
@@ -675,11 +685,15 @@ func InotifyEventFromStatMask(mask uint32) uint32 {
 }
 
 // InotifyRemoveChild sends the appriopriate notifications to the watch sets of
-// the child being removed and its parent.
+// the child being removed and its parent. Note that unlike most pairs of
+// parent/child notifications, the child is notified first in this case.
 func InotifyRemoveChild(self, parent *Watches, name string) {
-	self.Notify("", linux.IN_ATTRIB, 0, InodeEvent)
-	parent.Notify(name, linux.IN_DELETE, 0, InodeEvent)
-	// TODO(gvisor.dev/issue/1479): implement IN_EXCL_UNLINK.
+	if self != nil {
+		self.Notify("", linux.IN_ATTRIB, 0, InodeEvent)
+	}
+	if parent != nil {
+		parent.Notify(name, linux.IN_DELETE, 0, InodeEvent)
+	}
 }
 
 // InotifyRename sends the appriopriate notifications to the watch sets of the
@@ -690,8 +704,14 @@ func InotifyRename(ctx context.Context, renamed, oldParent, newParent *Watches, 
 		dirEv = linux.IN_ISDIR
 	}
 	cookie := uniqueid.InotifyCookie(ctx)
-	oldParent.Notify(oldName, dirEv|linux.IN_MOVED_FROM, cookie, InodeEvent)
-	newParent.Notify(newName, dirEv|linux.IN_MOVED_TO, cookie, InodeEvent)
+	if oldParent != nil {
+		oldParent.Notify(oldName, dirEv|linux.IN_MOVED_FROM, cookie, InodeEvent)
+	}
+	if newParent != nil {
+		newParent.Notify(newName, dirEv|linux.IN_MOVED_TO, cookie, InodeEvent)
+	}
 	// Somewhat surprisingly, self move events do not have a cookie.
-	renamed.Notify("", linux.IN_MOVE_SELF, 0, InodeEvent)
+	if renamed != nil {
+		renamed.Notify("", linux.IN_MOVE_SELF, 0, InodeEvent)
+	}
 }

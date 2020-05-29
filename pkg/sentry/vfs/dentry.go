@@ -113,7 +113,11 @@ type DentryImpl interface {
 	//
 	// Note that the events may not actually propagate up to the user, depending
 	// on the event masks.
-	InotifyWithParent(events uint32, cookie uint32, et EventType)
+	InotifyWithParent(events, cookie uint32, et EventType)
+
+	// RemoveWatch removes a watch on this target owned by an inotify instance
+	// with the given id.
+	RemoveWatch(id uint64)
 
 	// Watches returns the set of inotify watches for the file corresponding to
 	// the Dentry. Dentries that are hard links to the same underlying file
@@ -151,8 +155,14 @@ func (d *Dentry) isMounted() bool {
 
 // InotifyWithParent notifies all watches on the inodes for this dentry and
 // its parent of events.
-func (d *Dentry) InotifyWithParent(events uint32, cookie uint32, et EventType) {
+func (d *Dentry) InotifyWithParent(events, cookie uint32, et EventType) {
 	d.impl.InotifyWithParent(events, cookie, et)
+}
+
+// RemoveWatch removes the watch owned by an inotify instance with the given
+// id from the target represented by d.
+func (d *Dentry) RemoveWatch(id uint64) {
+	d.impl.RemoveWatch(id)
 }
 
 // Watches returns the set of inotify watches associated with d.

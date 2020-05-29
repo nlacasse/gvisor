@@ -662,6 +662,15 @@ type dentry struct {
 	// If this dentry represents a synthetic named pipe, pipe is the pipe
 	// endpoint bound to this file.
 	pipe *pipe.VFSPipe
+
+	// Inotify watches for this dentry. Because there is no inode structure
+	// stored in the sandbox, watches must be held on the dentry. This is
+	// technically incorrect in the presence of hard links, in which case
+	// multiple dentries would need to share the same set of watches. However,
+	// gofer fs does not support the creation of hard links, and hard links on
+	// the remote fs are already an unavoidable problem because we cannot
+	// always verify whether different file handles correspond to the same file.
+	watches vfs.Watches
 }
 
 // dentryAttrMask returns a p9.AttrMask enabling all attributes used by the
@@ -706,6 +715,7 @@ func (fs *filesystem) newDentry(ctx context.Context, file p9file, qid p9.QID, ma
 		handle: handle{
 			fd: -1,
 		},
+		watches: vfs.Watches{},
 	}
 	d.pf.dentry = d
 	if mask.UID {
@@ -936,6 +946,8 @@ func (d *dentry) setStat(ctx context.Context, creds *auth.Credentials, stat *lin
 		} else {
 			atomic.StoreInt64(&d.atime, dentryTimestampFromStatx(stat.Atime))
 		}
+		// Restore mask bits that we cleared earlier.
+		stat.Mask |= linux.STATX_ATIME
 	}
 	if setLocalMtime {
 		if stat.Mtime.Nsec == linux.UTIME_NOW {
@@ -943,6 +955,8 @@ func (d *dentry) setStat(ctx context.Context, creds *auth.Credentials, stat *lin
 		} else {
 			atomic.StoreInt64(&d.mtime, dentryTimestampFromStatx(stat.Mtime))
 		}
+		// Restore mask bits that we cleared earlier.
+		stat.Mask |= linux.STATX_MTIME
 	}
 	atomic.StoreInt64(&d.ctime, now)
 	if stat.Mask&linux.STATX_SIZE != 0 {
@@ -1040,15 +1054,35 @@ func (d *dentry) decRefLocked() {
 }
 
 // InotifyWithParent implements vfs.DentryImpl.InotifyWithParent.
-//
-// TODO(gvisor.dev/issue/1479): Implement inotify.
-func (d *dentry) InotifyWithParent(events uint32, cookie uint32, et vfs.EventType) {}
+func (d *dentry) InotifyWithParent(events, cookie uint32, et vfs.EventType) {
+	if d.isDir() {
+		events |= linux.IN_ISDIR
+	}
+
+	// The ordering below is important, Linux always notifies the parent first.
+	parent := d.parent
+	if parent != nil {
+		// Note that parent or d.name may be stale if there is a concurrent
+		// rename operation. Inotify does not provide consistency guarantees.
+		parent.watches.NotifyWithExclusions(d.name, events, cookie, et, d.isDeleted())
+	}
+	d.watches.Notify("", events, cookie, et)
+}
+
+// RemoveWatch implements vfs.DentryImpl.RemoveWatch.
+func (d *dentry) RemoveWatch(id uint64) {
+	d.watches.Remove(id)
+	// If no watches are left on this dentry and it has no references, cache it.
+	if d.watches.Size() == 0 && atomic.LoadInt64(&d.refs) == 0 {
+		d.fs.renameMu.Lock()
+		d.checkCachingLocked()
+		d.fs.renameMu.Unlock()
+	}
+}
 
 // Watches implements vfs.DentryImpl.Watches.
-//
-// TODO(gvisor.dev/issue/1479): Implement inotify.
 func (d *dentry) Watches() *vfs.Watches {
-	return nil
+	return &d.watches
 }
 
 // checkCachingLocked should be called after d's reference count becomes 0 or it
@@ -1079,6 +1113,9 @@ func (d *dentry) checkCachingLocked() {
 		// Dentry has already been destroyed.
 		return
 	}
+	if d.isDeleted() {
+		d.watches.HandleDeletion()
+	}
 	// Deleted and invalidated dentries with zero references are no longer
 	// reachable by path resolution and should be dropped immediately.
 	if d.vfsd.IsDead() {
@@ -1088,6 +1125,12 @@ func (d *dentry) checkCachingLocked() {
 			d.cached = false
 		}
 		d.destroyLocked()
+		return
+	}
+	// If d still has inotify watches and it is not deleted or invalidated, we
+	// cannot cache it and allow it to be evicted. Otherwise, we will lose its
+	// watches, even if a new dentry is created for the same file in the future.
+	if d.watches.Size() > 0 {
 		return
 	}
 	// If d is already cached, just move it to the front of the LRU.
@@ -1250,7 +1293,7 @@ func (d *dentry) removexattr(ctx context.Context, creds *auth.Credentials, name 
 	return d.file.removeXattr(ctx, name)
 }
 
-// Preconditions: !d.isSynthetic(). d.isRegularFile() || d.isDirectory().
+// Preconditions: !d.isSynthetic(). d.isRegularFile() || d.isDir().
 func (d *dentry) ensureSharedHandle(ctx context.Context, read, write, trunc bool) error {
 	// O_TRUNC unconditionally requires us to obtain a new handle (opened with
 	// O_TRUNC).
@@ -1394,7 +1437,13 @@ func (fd *fileDescription) Stat(ctx context.Context, opts vfs.StatOptions) (linu
 
 // SetStat implements vfs.FileDescriptionImpl.SetStat.
 func (fd *fileDescription) SetStat(ctx context.Context, opts vfs.SetStatOptions) error {
-	return fd.dentry().setStat(ctx, auth.CredentialsFromContext(ctx), &opts.Stat, fd.vfsfd.Mount())
+	if err := fd.dentry().setStat(ctx, auth.CredentialsFromContext(ctx), &opts.Stat, fd.vfsfd.Mount()); err != nil {
+		return err
+	}
+	if ev := vfs.InotifyEventFromStatMask(opts.Stat.Mask); ev != 0 {
+		fd.dentry().InotifyWithParent(ev, 0, vfs.InodeEvent)
+	}
+	return nil
 }
 
 // Listxattr implements vfs.FileDescriptionImpl.Listxattr.
@@ -1409,10 +1458,18 @@ func (fd *fileDescription) Getxattr(ctx context.Context, opts vfs.GetxattrOption
 
 // Setxattr implements vfs.FileDescriptionImpl.Setxattr.
 func (fd *fileDescription) Setxattr(ctx context.Context, opts vfs.SetxattrOptions) error {
-	return fd.dentry().setxattr(ctx, auth.CredentialsFromContext(ctx), &opts)
+	if err := fd.dentry().setxattr(ctx, auth.CredentialsFromContext(ctx), &opts); err != nil {
+		return err
+	}
+	fd.dentry().InotifyWithParent(linux.IN_ATTRIB, 0, vfs.InodeEvent)
+	return nil
 }
 
 // Removexattr implements vfs.FileDescriptionImpl.Removexattr.
 func (fd *fileDescription) Removexattr(ctx context.Context, name string) error {
-	return fd.dentry().removexattr(ctx, auth.CredentialsFromContext(ctx), name)
+	if err := fd.dentry().removexattr(ctx, auth.CredentialsFromContext(ctx), name); err != nil {
+		return err
+	}
+	fd.dentry().InotifyWithParent(linux.IN_ATTRIB, 0, vfs.InodeEvent)
+	return nil
 }

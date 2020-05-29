@@ -1300,13 +1300,11 @@ TEST(Inotify, UtimesGeneratesAttribEvent) {
   const TempPath file1 =
       ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateFileIn(root.path()));
 
-  const FileDescriptor file1_fd =
-      ASSERT_NO_ERRNO_AND_VALUE(Open(file1.path(), O_RDWR));
   const int wd = ASSERT_NO_ERRNO_AND_VALUE(
       InotifyAddWatch(fd.get(), root.path(), IN_ALL_EVENTS));
 
   struct timeval times[2] = {{1, 0}, {2, 0}};
-  EXPECT_THAT(futimes(file1_fd.get(), times), SyscallSucceeds());
+  EXPECT_THAT(utimes(file1.path().c_str(), times), SyscallSucceeds());
 
   const std::vector<Event> events =
       ASSERT_NO_ERRNO_AND_VALUE(DrainEvents(fd.get()));
