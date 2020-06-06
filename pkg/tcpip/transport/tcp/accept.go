@@ -215,6 +215,7 @@ func (l *listenContext) createConnectingEndpoint(s *segment, iss seqnum.Value, i
 	n.rcvBufSize = int(l.rcvWnd)
 	n.amss = mssForRoute(&n.route)
 	n.setEndpointState(StateConnecting)
+	// TODO(igudger): Configure port flags.
 
 	n.maybeEnableTimestamp(rcvdSynOpts)
 	n.maybeEnableSACKPermitted(rcvdSynOpts)
@@ -238,7 +239,7 @@ func (l *listenContext) createConnectingEndpoint(s *segment, iss seqnum.Value, i
 	n.mu.Lock()
 
 	// Register new endpoint so that packets are routed to it.
-	if err := n.stack.RegisterTransportEndpoint(n.boundNICID, n.effectiveNetProtos, ProtocolNumber, n.ID, n, n.reusePort, n.boundBindToDevice); err != nil {
+	if err := n.stack.RegisterTransportEndpoint(n.boundNICID, n.effectiveNetProtos, ProtocolNumber, n.ID, n, n.boundPortFlags, n.boundBindToDevice); err != nil {
 		n.mu.Unlock()
 		n.Close()
 		return nil, err
@@ -274,12 +275,7 @@ func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *head
 			ep.mu.Unlock()
 			ep.Close()
 
-			// Wake up any waiters. This is strictly not required normally
-			// as a socket that was never accepted can't really have any
-			// registered waiters except when stack.Wait() is called which
-			// waits for all registered endpoints to stop and expects an
-			// EventHUp.
-			ep.waiterQueue.Notify(waiter.EventHUp | waiter.EventErr | waiter.EventIn | waiter.EventOut)
+			ep.notifyAborted()
 			return nil, tcpip.ErrConnectionAborted
 		}
 		l.addPendingEndpoint(ep)
@@ -287,6 +283,21 @@ func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *head
 		// Propagate any inheritable options from the listening endpoint
 		// to the newly created endpoint.
 		l.listenEP.propagateInheritableOptionsLocked(ep)
+
+		if !ep.reserveTupleLocked() {
+			ep.mu.Unlock()
+			ep.Close()
+
+			ep.notifyAborted()
+
+			if l.listenEP != nil {
+				l.removePendingEndpoint(ep)
+			}
+
+			ep.drainClosingSegmentQueue()
+
+			return nil, tcpip.ErrConnectionAborted
+		}
 
 		deferAccept = l.listenEP.deferAccept
 		l.listenEP.mu.Unlock()
@@ -297,12 +308,7 @@ func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *head
 	if err := h.execute(); err != nil {
 		ep.mu.Unlock()
 		ep.Close()
-		// Wake up any waiters. This is strictly not required normally
-		// as a socket that was never accepted can't really have any
-		// registered waiters except when stack.Wait() is called which
-		// waits for all registered endpoints to stop and expects an
-		// EventHUp.
-		ep.waiterQueue.Notify(waiter.EventHUp | waiter.EventErr | waiter.EventIn | waiter.EventOut)
+		ep.notifyAborted()
 
 		if l.listenEP != nil {
 			l.removePendingEndpoint(ep)
@@ -378,6 +384,40 @@ func (e *endpoint) deliverAccepted(n *endpoint) {
 // Precondition: e.mu and n.mu must be held.
 func (e *endpoint) propagateInheritableOptionsLocked(n *endpoint) {
 	n.userTimeout = e.userTimeout
+	n.portFlags = e.portFlags
+	n.boundBindToDevice = e.boundBindToDevice
+	n.boundPortFlags = e.boundPortFlags
+}
+
+// reserveTupleLocked reserves an accepted endpoint's tuple.
+//
+// Preconditions:
+// * propagateInheritableOptionsLocked has been called.
+// * e.mu is held.
+func (e *endpoint) reserveTupleLocked() bool {
+	if !e.stack.ReserveTuple(
+		e.effectiveNetProtos,
+		ProtocolNumber,
+		e.ID.LocalAddress,
+		e.ID.LocalPort,
+		e.boundPortFlags,
+		e.boundBindToDevice,
+		tcpip.FullAddress{Addr: e.ID.RemoteAddress, Port: e.ID.RemotePort},
+	) {
+		return false
+	}
+	e.isPortReserved = true
+	return true
+}
+
+// notifyAborted wakes up any waiters on registered, but not accepted
+// endpoints.
+//
+// This is strictly not required normally as a socket that was never accepted
+// can't really have any registered waiters except when stack.Wait() is called
+// which waits for all registered endpoints to stop and expects an EventHUp.
+func (e *endpoint) notifyAborted() {
+	e.waiterQueue.Notify(waiter.EventHUp | waiter.EventErr | waiter.EventIn | waiter.EventOut)
 }
 
 // handleSynSegment is called in its own goroutine once the listening endpoint
@@ -579,6 +619,17 @@ func (e *endpoint) handleListenSegment(ctx *listenContext, s *segment) {
 		// Propagate any inheritable options from the listening endpoint
 		// to the newly created endpoint.
 		e.propagateInheritableOptionsLocked(n)
+
+		if !n.reserveTupleLocked() {
+			n.mu.Unlock()
+			n.Close()
+
+			n.notifyAborted()
+
+			e.stack.Stats().TCP.FailedConnectionAttempts.Increment()
+			e.stats.FailedConnectionAttempts.Increment()
+			return
+		}
 
 		// clear the tsOffset for the newly created
 		// endpoint as the Timestamp was already

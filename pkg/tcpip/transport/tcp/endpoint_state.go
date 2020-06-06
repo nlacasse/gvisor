@@ -94,8 +94,8 @@ func (e *endpoint) beforeSave() {
 		panic("endpoint still has waiters upon save")
 	}
 
-	if e.EndpointState() != StateClose && !((e.EndpointState() == StateBound || e.EndpointState() == StateListen) == e.isPortReserved) {
-		panic("endpoints which are not in the closed state must have a reserved port IFF they are in bound or listen state")
+	if e.EndpointState() != StateClose && !((e.EndpointState() == StateBound || e.EndpointState() == StateListen || e.EndpointState() == StateConnecting || e.EndpointState() == StateEstablished) == e.isPortReserved) {
+		panic(fmt.Sprint("endpoints which are not in the closed state must have a reserved port IFF they are in bound, listen, connecting or established state, actual state: ", e.EndpointState()))
 	}
 }
 

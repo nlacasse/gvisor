@@ -363,9 +363,6 @@ TEST_P(BindToDeviceSequenceTest, BindTwiceWithReuseOnce) {
 }
 
 TEST_P(BindToDeviceSequenceTest, BindWithReuseAddr) {
-  // FIXME(b/129164367): Support SO_REUSEADDR on UDP sockets.
-  SKIP_IF(IsRunningOnGvisor());
-
   ASSERT_NO_FATAL_FAILURE(
       BindSocket(/* reusePort */ false, /* reuse_addr */ true));
   ASSERT_NO_FATAL_FAILURE(BindSocket(/* reuse_port */ false,
@@ -405,9 +402,6 @@ TEST_P(BindToDeviceSequenceTest, BindReuseAddrReusePortThenReusePort) {
 }
 
 TEST_P(BindToDeviceSequenceTest, BindReuseAddrReusePortThenReuseAddr) {
-  // FIXME(b/129164367): Support SO_REUSEADDR on UDP sockets.
-  SKIP_IF(IsRunningOnGvisor());
-
   ASSERT_NO_FATAL_FAILURE(BindSocket(/* reuse_port */ true,
                                      /* reuse_addr */ true,
                                      /* bind_to_device */ 0));
@@ -434,9 +428,6 @@ TEST_P(BindToDeviceSequenceTest, BindDoubleReuseAddrReusePortThenReusePort) {
 }
 
 TEST_P(BindToDeviceSequenceTest, BindDoubleReuseAddrReusePortThenReuseAddr) {
-  // FIXME(b/129164367): Support SO_REUSEADDR on UDP sockets.
-  SKIP_IF(IsRunningOnGvisor());
-
   ASSERT_NO_FATAL_FAILURE(BindSocket(
       /* reuse_port */ true, /* reuse_addr */ true, /* bind_to_device */ 0));
   ASSERT_NO_FATAL_FAILURE(BindSocket(/* reuse_port */ true,
@@ -469,10 +460,10 @@ TEST_P(BindToDeviceSequenceTest, BindReuseAddrThenReuseAddr) {
                                      /* bind_to_device */ 0, EADDRINUSE));
 }
 
-// This behavior seems like a bug?
 TEST_P(BindToDeviceSequenceTest,
        BindReuseAddrThenReuseAddrReusePortThenReuseAddr) {
-  // FIXME(b/129164367): Support SO_REUSEADDR on UDP sockets.
+  // The behavior described in this test seems like a Linux bug. It doesn't
+  // make any sense and it is unlikely that any applications rely on it.
   SKIP_IF(IsRunningOnGvisor());
 
   ASSERT_NO_FATAL_FAILURE(BindSocket(

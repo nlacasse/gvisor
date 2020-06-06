@@ -1798,10 +1798,6 @@ TEST_P(SocketMultiProtocolInetLoopbackTest, V6OnlyV6AnyReservesV6) {
 TEST_P(SocketMultiProtocolInetLoopbackTest, V6EphemeralPortReserved) {
   auto const& param = GetParam();
 
-  // FIXME(b/76031995): Support disabling SO_REUSEADDR for TCP sockets and make
-  // it disabled by default.
-  SKIP_IF(IsRunningOnGvisor() && param.type == SOCK_STREAM);
-
   for (int i = 0; true; i++) {
     // Bind the v6 loopback on a dual stack socket.
     TestAddress const& test_addr = V6Loopback();
@@ -1900,9 +1896,6 @@ TEST_P(SocketMultiProtocolInetLoopbackTest, V6EphemeralPortReserved) {
 TEST_P(SocketMultiProtocolInetLoopbackTest, V6EphemeralPortReservedReuseAddr) {
   auto const& param = GetParam();
 
-  // FIXME(b/129164367): Support SO_REUSEADDR on UDP sockets.
-  SKIP_IF(IsRunningOnGvisor() && param.type == SOCK_DGRAM);
-
   // Bind the v6 loopback on a dual stack socket.
   TestAddress const& test_addr = V6Loopback();
   sockaddr_storage bound_addr = test_addr.addr;
@@ -1965,10 +1958,6 @@ TEST_P(SocketMultiProtocolInetLoopbackTest, V6EphemeralPortReservedReuseAddr) {
 
 TEST_P(SocketMultiProtocolInetLoopbackTest, V4MappedEphemeralPortReserved) {
   auto const& param = GetParam();
-
-  // FIXME(b/76031995): Support disabling SO_REUSEADDR for TCP sockets and make
-  // it disabled by default.
-  SKIP_IF(IsRunningOnGvisor() && param.type == SOCK_STREAM);
 
   for (int i = 0; true; i++) {
     // Bind the v4 loopback on a dual stack socket.
@@ -2091,9 +2080,6 @@ TEST_P(SocketMultiProtocolInetLoopbackTest,
        V4MappedEphemeralPortReservedResueAddr) {
   auto const& param = GetParam();
 
-  // FIXME(b/129164367): Support SO_REUSEADDR on UDP sockets.
-  SKIP_IF(IsRunningOnGvisor() && param.type == SOCK_DGRAM);
-
   // Bind the v4 loopback on a dual stack socket.
   TestAddress const& test_addr = V4MappedLoopback();
   sockaddr_storage bound_addr = test_addr.addr;
@@ -2157,10 +2143,6 @@ TEST_P(SocketMultiProtocolInetLoopbackTest,
 
 TEST_P(SocketMultiProtocolInetLoopbackTest, V4EphemeralPortReserved) {
   auto const& param = GetParam();
-
-  // FIXME(b/76031995): Support disabling SO_REUSEADDR for TCP sockets and make
-  // it disabled by default.
-  SKIP_IF(IsRunningOnGvisor() && param.type == SOCK_STREAM);
 
   for (int i = 0; true; i++) {
     // Bind the v4 loopback on a v4 socket.
@@ -2282,9 +2264,6 @@ TEST_P(SocketMultiProtocolInetLoopbackTest, V4EphemeralPortReserved) {
 
 TEST_P(SocketMultiProtocolInetLoopbackTest, V4EphemeralPortReservedReuseAddr) {
   auto const& param = GetParam();
-
-  // FIXME(b/129164367): Support SO_REUSEADDR on UDP sockets.
-  SKIP_IF(IsRunningOnGvisor() && param.type == SOCK_DGRAM);
 
   // Bind the v4 loopback on a v4 socket.
   TestAddress const& test_addr = V4Loopback();
