@@ -14,8 +14,11 @@
 package stack
 
 import (
+	"fmt"
+
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/buffer"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 // A PacketBuffer contains all the data of a network packet.
@@ -101,6 +104,133 @@ func (pk *PacketBuffer) Clone() *PacketBuffer {
 		NetworkProtocolNumber: pk.NetworkProtocolNumber,
 		NatDone:               pk.NatDone,
 	}
+}
+
+// Describe returns the packet in human-readable form. It looks for headers in
+// the *Header fields, so unparsed incoming packets may show little data.
+//
+// Describe is intended primarily for debugging.
+func (pk PacketBuffer) Describe(protocol tcpip.NetworkProtocolNumber) string {
+	// TODO(gvisor.dev/issue/170): Have PacketBuffer know its own network protocol.
+	// Figure out the network layer info.
+	var transProto uint8
+	src := tcpip.Address("unknown")
+	dst := tcpip.Address("unknown")
+	id := 0
+	size := uint16(0)
+	var fragmentOffset uint16
+	var moreFragments bool
+
+	switch protocol {
+	case header.IPv4ProtocolNumber:
+		if len(pk.NetworkHeader) < header.IPv4MinimumSize {
+			return fmt.Sprintf("[IPv4 protocol number, but packet is too small]")
+		}
+		ipv4 := header.IPv4(pk.NetworkHeader)
+		fragmentOffset = ipv4.FragmentOffset()
+		moreFragments = ipv4.Flags()&header.IPv4FlagMoreFragments == header.IPv4FlagMoreFragments
+		src = ipv4.SourceAddress()
+		dst = ipv4.DestinationAddress()
+		transProto = ipv4.Protocol()
+		size = ipv4.TotalLength() - uint16(ipv4.HeaderLength())
+		id = int(ipv4.ID())
+
+	case header.IPv6ProtocolNumber:
+		if len(pk.NetworkHeader) < header.IPv6MinimumSize {
+			return fmt.Sprintf("[IPv6 protocol number, but packet is too small]")
+		}
+		ipv6 := header.IPv6(pk.NetworkHeader)
+		src = ipv6.SourceAddress()
+		dst = ipv6.DestinationAddress()
+		transProto = ipv6.NextHeader()
+		size = ipv6.PayloadLength()
+
+	case header.ARPProtocolNumber:
+		if len(pk.NetworkHeader) < header.ARPSize {
+			return fmt.Sprintf("[ARP protocol number, but packet is too small]")
+		}
+		arp := header.ARP(pk.NetworkHeader)
+		return fmt.Sprintf(
+			"arp %v (%v) -> %v (%v) valid:%v",
+			tcpip.Address(arp.ProtocolAddressSender()), tcpip.LinkAddress(arp.HardwareAddressSender()),
+			tcpip.Address(arp.ProtocolAddressTarget()), tcpip.LinkAddress(arp.HardwareAddressTarget()),
+			arp.IsValid(),
+		)
+	default:
+		return fmt.Sprintf("unknown network protocol")
+	}
+
+	// Figure out the transport layer info.
+	transName := "unknown"
+	srcPort := uint16(0)
+	dstPort := uint16(0)
+	details := ""
+	switch tcpip.TransportProtocolNumber(transProto) {
+	case header.ICMPv4ProtocolNumber:
+		// TODO(gvisor.dev/issue/170): ICMP packets aren't early-parsed
+		// yet.
+		return fmt.Sprintf("icmpv4")
+
+	case header.ICMPv6ProtocolNumber:
+		// TODO(gvisor.dev/issue/170): ICMP packets aren't early-parsed
+		// yet.
+		return fmt.Sprintf("icmpv6")
+
+	case header.UDPProtocolNumber:
+		transName = "udp"
+		if len(pk.TransportHeader) < header.UDPMinimumSize {
+			return fmt.Sprintf("%v -> %v transport protocol: %d, but UDP header too small", src, dst, transProto)
+		}
+		udp := header.UDP(pk.TransportHeader)
+		if fragmentOffset == 0 {
+			srcPort = udp.SourcePort()
+			dstPort = udp.DestinationPort()
+			details = fmt.Sprintf("xsum: 0x%x", udp.Checksum())
+			size -= header.UDPMinimumSize
+		}
+
+	case header.TCPProtocolNumber:
+		transName = "tcp"
+		if len(pk.TransportHeader) < header.TCPMinimumSize {
+			return fmt.Sprintf("%v -> %v transport protocol: %d, but TCP header too small", src, dst, transProto)
+		}
+		tcp := header.TCP(pk.TransportHeader)
+		if fragmentOffset == 0 {
+			offset := int(tcp.DataOffset())
+			if offset < header.TCPMinimumSize {
+				details += fmt.Sprintf("invalid packet: tcp data offset too small %d", offset)
+				break
+			}
+			if transportSize := len(pk.TransportHeader) + pk.Data.Size(); offset > transportSize && !moreFragments {
+				details += fmt.Sprintf("invalid packet: tcp data offset %d larger than packet buffer length %d", offset, transportSize)
+				break
+			}
+
+			srcPort = tcp.SourcePort()
+			dstPort = tcp.DestinationPort()
+			size -= uint16(offset)
+
+			// Initialize the TCP flags.
+			flags := tcp.Flags()
+			flagsStr := []byte("FSRPAU")
+			for i := range flagsStr {
+				if flags&(1<<uint(i)) == 0 {
+					flagsStr[i] = ' '
+				}
+			}
+			details = fmt.Sprintf("flags:0x%02x (%v) seqnum: %v ack: %v win: %v xsum:0x%x", flags, string(flagsStr), tcp.SequenceNumber(), tcp.AckNumber(), tcp.WindowSize(), tcp.Checksum())
+			if flags&header.TCPFlagSyn != 0 {
+				details += fmt.Sprintf(" options: %+v", header.ParseSynOptions(tcp.Options(), flags&header.TCPFlagAck != 0))
+			} else {
+				details += fmt.Sprintf(" options: %+v", tcp.ParsedOptions())
+			}
+		}
+
+	default:
+		return fmt.Sprintf("%v -> %v unknown transport protocol: %d", src, dst, transProto)
+	}
+
+	return fmt.Sprintf("%s %v:%v -> %v:%v len:%d id:%04x %s", transName, src, srcPort, dst, dstPort, size, id, details)
 }
 
 // noCopy may be embedded into structs which must not be copied

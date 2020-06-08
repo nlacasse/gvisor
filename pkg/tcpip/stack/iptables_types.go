@@ -91,7 +91,12 @@ type IPTables struct {
 	// hook. mu needs to be locked for accessing.
 	priorities map[Hook][]string
 
+	// connections tracks connections for the NAT table.
 	connections ConnTrackTable
+
+	// connectionReaperDone can be signalled to stop the connection reaper
+	// goroutine.
+	connectionReaperDone chan bool
 }
 
 // A Table defines a set of chains and hooks into the network stack. It is
