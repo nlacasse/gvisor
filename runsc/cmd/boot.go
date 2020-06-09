@@ -176,7 +176,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) 
 	if err != nil {
 		Fatalf("reading spec: %v", err)
 	}
-	specutils.LogSpec(spec)
+	specutils.LogSpec(*spec)
 
 	if b.applyCaps {
 		caps := spec.Process.Capabilities

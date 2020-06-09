@@ -44,20 +44,20 @@ var ExePath = "/proc/self/exe"
 var Version = specs.Version
 
 // LogSpec logs the spec in a human-friendly way.
-func LogSpec(spec *specs.Spec) {
-	log.Debugf("Spec: %+v", spec)
-	log.Debugf("Spec.Hooks: %+v", spec.Hooks)
-	log.Debugf("Spec.Linux: %+v", spec.Linux)
-	if spec.Linux != nil && spec.Linux.Resources != nil {
-		res := spec.Linux.Resources
-		log.Debugf("Spec.Linux.Resources.Memory: %+v", res.Memory)
-		log.Debugf("Spec.Linux.Resources.CPU: %+v", res.CPU)
-		log.Debugf("Spec.Linux.Resources.BlockIO: %+v", res.BlockIO)
-		log.Debugf("Spec.Linux.Resources.Network: %+v", res.Network)
+func LogSpec(spec specs.Spec) {
+	// Strip down parts of the spec that are not interesting.
+	// Note that we're operating on a copy of the spec.
+	spec.Process.Capabilities = nil
+	spec.Linux.Resources.Devices = nil
+	spec.Linux.Seccomp = nil
+	spec.Linux.MaskedPaths = nil
+	spec.Linux.ReadonlyPaths = nil
+
+	out, err := json.MarshalIndent(spec, "", "  ")
+	if err != nil {
+		log.Debugf("failed to marshal spec: %v", err)
 	}
-	log.Debugf("Spec.Process: %+v", spec.Process)
-	log.Debugf("Spec.Root: %+v", spec.Root)
-	log.Debugf("Spec.Mounts: %+v", spec.Mounts)
+	log.Debugf("Spec:\n%s", out)
 }
 
 // ValidateSpec validates that the spec is compatible with runsc.

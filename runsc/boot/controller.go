@@ -245,7 +245,7 @@ func (cm *containerManager) Start(args *StartArgs, _ *struct{}) error {
 	}
 
 	// All validation passed, logs the spec for debugging.
-	specutils.LogSpec(args.Spec)
+	specutils.LogSpec(*args.Spec)
 
 	err := cm.l.startContainer(args.Spec, args.Conf, args.CID, args.FilePayload.Files)
 	if err != nil {

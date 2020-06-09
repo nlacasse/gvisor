@@ -95,7 +95,7 @@ func (c *Create) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}
 	if err != nil {
 		return Errorf("reading spec: %v", err)
 	}
-	specutils.LogSpec(spec)
+	specutils.LogSpec(*spec)
 
 	// Create the container. A new sandbox will be created for the
 	// container unless the metadata specifies that it should be run in an

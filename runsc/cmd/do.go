@@ -122,7 +122,7 @@ func (c *Do) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) su
 		Hostname: hostname,
 	}
 
-	specutils.LogSpec(spec)
+	specutils.LogSpec(*spec)
 
 	cid := fmt.Sprintf("runsc-%06d", rand.Int31n(1000000))
 	if conf.Network == boot.NetworkNone {

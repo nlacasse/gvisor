@@ -92,7 +92,7 @@ func (r *Restore) Execute(_ context.Context, f *flag.FlagSet, args ...interface{
 	if err != nil {
 		return Errorf("reading spec: %v", err)
 	}
-	specutils.LogSpec(spec)
+	specutils.LogSpec(*spec)
 
 	if r.imagePath == "" {
 		return Errorf("image-path flag must be provided")

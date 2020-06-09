@@ -79,7 +79,7 @@ func (r *Run) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) s
 	if err != nil {
 		return Errorf("reading spec: %v", err)
 	}
-	specutils.LogSpec(spec)
+	specutils.LogSpec(*spec)
 
 	runArgs := container.Args{
 		ID:            id,
