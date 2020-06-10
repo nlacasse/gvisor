@@ -39,11 +39,6 @@ import (
 
 // LINT.IfChange
 
-// maxSendBufferSize is the maximum host send buffer size allowed for endpoint.
-//
-// N.B. 8MB is the default maximum on Linux (2 * sysctl_wmem_max).
-const maxSendBufferSize = 8 << 20
-
 // ConnectedEndpoint is a host FD backed implementation of
 // transport.ConnectedEndpoint and transport.Receiver.
 //
@@ -102,10 +97,6 @@ func (c *ConnectedEndpoint) init() *syserr.Error {
 	sndbuf, err := syscall.GetsockoptInt(c.file.FD(), syscall.SOL_SOCKET, syscall.SO_SNDBUF)
 	if err != nil {
 		return syserr.FromError(err)
-	}
-	if sndbuf > maxSendBufferSize {
-		log.Warningf("Socket send buffer too large: %d", sndbuf)
-		return syserr.ErrInvalidEndpointState
 	}
 
 	c.stype = linux.SockType(stype)
