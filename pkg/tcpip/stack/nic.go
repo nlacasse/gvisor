@@ -611,6 +611,11 @@ func (n *NIC) getRefOrCreateTemp(protocol tcpip.NetworkProtocolNumber, address t
 	if ref, ok := n.mu.endpoints[NetworkEndpointID{address}]; ok {
 		// An endpoint with this id exists, check if it can be used and return it.
 		switch ref.getKind() {
+		case permanentTentative:
+			n.mu.RUnlock()
+			// Tentative addresses should not be used for incoming or outgoing
+			// packets.
+			return nil
 		case permanentExpired:
 			if !spoofingOrPromiscuous {
 				n.mu.RUnlock()
@@ -689,7 +694,6 @@ func (n *NIC) getRefOrCreateTempLocked(protocol tcpip.NetworkProtocolNumber, add
 			PrefixLen: netProto.DefaultPrefixLen(),
 		},
 	}, peb, temporary, static, false)
-
 	return ref
 }
 
@@ -1660,8 +1664,8 @@ func (r *referencedNetworkEndpoint) setKind(kind networkEndpointKind) {
 }
 
 // isValidForOutgoing returns true if the endpoint can be used to send out a
-// packet. It requires the endpoint to not be marked expired (i.e., its address
-// has been removed), or the NIC to be in spoofing mode.
+// packet. It requires the endpoint to not be marked tentative or expired
+// (i.e., its address has been removed) unless the NIC is in spoofing mode.
 func (r *referencedNetworkEndpoint) isValidForOutgoing() bool {
 	r.nic.mu.RLock()
 	defer r.nic.mu.RUnlock()
@@ -1670,12 +1674,13 @@ func (r *referencedNetworkEndpoint) isValidForOutgoing() bool {
 }
 
 // isValidForOutgoingRLocked returns true if the endpoint can be used to send
-// out a packet. It requires the endpoint to not be marked expired (i.e., its
-// address has been removed), or the NIC to be in spoofing mode.
+// out a packet. It requires the endpoint to not be marked tentative or expired
+// (i.e., its address has been removed) unless the NIC is in spoofing mode.
 //
 // r's NIC must be read locked.
 func (r *referencedNetworkEndpoint) isValidForOutgoingRLocked() bool {
-	return r.nic.mu.enabled && (r.getKind() != permanentExpired || r.nic.mu.spoofing)
+	kind := r.getKind()
+	return r.nic.mu.enabled && kind != permanentTentative && (kind != permanentExpired || r.nic.mu.spoofing)
 }
 
 // expireLocked decrements the reference count and marks the permanent endpoint
